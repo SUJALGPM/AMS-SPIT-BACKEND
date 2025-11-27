@@ -1,0 +1,13 @@
+{
+  "id": "emergency_1764277143970",
+  "type": "emergency",
+  "timestamp": "2025-11-27T20:59:03.970Z",
+  "nodeId": "node-1",
+  "data": {
+    "error": "listen EADDRINUSE: address already in use :::5000",
+    "stack": "Error: listen EADDRINUSE: address already in use :::5000\n    at Server.setupListenHandle [as _listen2] (node:net:1898:16)\n    at listenInCluster (node:net:1946:12)\n    at Server.listen (node:net:2044:7)\n    at startServer (S:\\Projects\\Next.js-Projects\\AMS-SPIT\\backend\\server.js:239:12)",
+    "timestamp": "2025-11-27T20:59:03.969Z"
+  },
+  "operationCount": 0,
+  "hash": "ca9dc7b125607186338e2ee01993e9ae5d7f53b2a5c5e2a3190710e5c0a195f2"
+}

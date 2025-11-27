@@ -1311,45 +1311,34 @@ router.get('/student/:studentId', authMiddleware, async (req, res) => {
       .populate('recordedBy', 'teacherName')
       .sort({ updatedAt: -1 });
 
-    // Group by subject and type, aggregate if multiple periods
+    // Group by subject and type, but use the most recent record's totals
     const subjectStats = {};
     
     attendance.forEach(record => {
       if (!record.subjectId) return;
-      
       const subjectId = record.subjectId._id.toString();
       const key = `${subjectId}_${record.type}`;
-      
-      if (!subjectStats[key]) {
+
+      const current = subjectStats[key];
+      if (!current || (record.updatedAt && current.updatedAt && new Date(record.updatedAt) > new Date(current.updatedAt))) {
         subjectStats[key] = {
           subject: record.subjectId,
           type: record.type,
-          totalConducted: 0,
-          totalAttended: 0,
-          percentage: 0,
+          totalConducted: record.totalConducted || 0,
+          totalAttended: record.totalAttended || 0,
+          percentage: record.percentage && record.percentage > 0
+            ? record.percentage
+            : ((record.totalConducted || 0) > 0 ? ((record.totalAttended || 0) / (record.totalConducted || 0)) * 100 : 0),
           period: record.period,
           division: record.division,
-          batch: record.batch
+          batch: record.batch,
+          updatedAt: record.updatedAt
         };
-      }
-      
-      // Aggregate totals if multiple periods
-      subjectStats[key].totalConducted += record.totalConducted || 0;
-      subjectStats[key].totalAttended += record.totalAttended || 0;
-      
-      // Use latest percentage or calculate
-      if (record.percentage > 0) {
-        subjectStats[key].percentage = record.percentage;
       }
     });
 
-    // Calculate percentages for aggregated records
-    Object.keys(subjectStats).forEach(key => {
-      const stats = subjectStats[key];
-      if (stats.percentage === 0 && stats.totalConducted > 0) {
-        stats.percentage = (stats.totalAttended / stats.totalConducted) * 100;
-      }
-    });
+    // Remove internal field
+    Object.keys(subjectStats).forEach(k => { delete subjectStats[k].updatedAt; });
 
     res.json({
       attendance,
@@ -1423,17 +1412,39 @@ router.get('/defaulters/report', authMiddleware, async (req, res) => {
       if (allocatedSubjectIds && allocatedSubjectIds.length > 0) {
         attendanceQuery.subjectId = { $in: allocatedSubjectIds };
       }
-      const records = await Attendance.find(attendanceQuery).select('totalConducted totalAttended percentage subjectId').populate('subjectId', 'name code');
+      const records = await Attendance.find(attendanceQuery)
+        .select('totalConducted totalAttended percentage subjectId updatedAt')
+        .populate('subjectId', 'name code');
       if (records.length === 0) continue;
       let total = 0;
       let present = 0;
       let percent = 0;
+      // Build per-subject latest percentage map
+      const perSubject = {};
       for (const r of records) {
         total += r.totalConducted || 0;
         present += r.totalAttended || 0;
         if (r.percentage && r.percentage > 0) percent = r.percentage;
+        if (r.subjectId) {
+          const sid = r.subjectId._id.toString();
+          const existing = perSubject[sid];
+          if (!existing || (r.updatedAt && existing.updatedAt && new Date(r.updatedAt) > new Date(existing.updatedAt))) {
+            const subTotal = r.totalConducted || 0;
+            const subPresent = r.totalAttended || 0;
+            const subPercent = r.percentage && r.percentage > 0
+              ? r.percentage
+              : (subTotal > 0 ? (subPresent / subTotal) * 100 : 0);
+            perSubject[sid] = {
+              subject: r.subjectId,
+              percentage: subPercent,
+              updatedAt: r.updatedAt
+            };
+          }
+        }
       }
       if (percent === 0 && total > 0) percent = (present / total) * 100;
+      const subjectList = Object.values(perSubject)
+        .map(s => ({ name: s.subject.name, code: s.subject.code, percentage: parseFloat(s.percentage.toFixed(2)) }));
       const item = {
         student: {
           _id: student._id,
@@ -1443,7 +1454,8 @@ router.get('/defaulters/report', authMiddleware, async (req, res) => {
           division: student.division,
           batch: student.batch
         },
-        percentage: parseFloat(percent.toFixed(2))
+        percentage: parseFloat(percent.toFixed(2)),
+        subjects: subjectList
       };
       if (percent < 50) {
         below50.push(item);

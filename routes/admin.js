@@ -149,6 +149,36 @@ router.post('/teachers', authMiddleware, requireRole(['admin']), async (req, res
   }
 });
 
+// Update teacher
+router.put('/teachers/:teacherId', authMiddleware, requireRole(['admin']), async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    const allowed = ['teacherName', 'teacherEmail', 'teacherGender', 'teacherNumber', 'department', 'teacherPassword'];
+    const updates = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+
+    if (updates.teacherEmail) {
+      const existing = await Teacher.findOne({ teacherEmail: updates.teacherEmail, _id: { $ne: teacherId } });
+      if (existing) {
+        return res.status(400).json({ message: 'Email already in use' });
+      }
+    }
+
+    if (updates.teacherPassword) {
+      updates.teacherPassword = await bcrypt.hash(updates.teacherPassword, 10);
+    }
+
+    const updated = await Teacher.findByIdAndUpdate(teacherId, { $set: updates }, { new: true }).select('-teacherPassword');
+    if (!updated) return res.status(404).json({ message: 'Teacher not found' });
+    res.json(updated);
+  } catch (error) {
+    console.error('Update teacher error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Create student
 router.post('/students', authMiddleware, requireRole(['admin']), async (req, res) => {
   try {
@@ -191,6 +221,41 @@ router.post('/students', authMiddleware, requireRole(['admin']), async (req, res
 
   } catch (error) {
     console.error('Create student error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Update student
+router.put('/students/:studentId', authMiddleware, requireRole(['admin']), async (req, res) => {
+  try {
+    const { studentId } = req.params;
+    const allowed = ['name', 'email', 'password', 'division', 'batch', 'contactNumber', 'gender', 'departmentId', 'semesterId'];
+    const updates = {};
+    for (const k of allowed) {
+      if (req.body[k] !== undefined) updates[k] = req.body[k];
+    }
+
+    // do not allow changing studentId field (UID)
+    if (req.body.studentId) delete req.body.studentId;
+
+    if (updates.email) {
+      const existing = await Student.findOne({ email: updates.email, _id: { $ne: studentId } });
+      if (existing) {
+        return res.status(400).json({ message: 'Email already in use' });
+      }
+    }
+
+    if (updates.password) {
+      updates.password = await bcrypt.hash(updates.password, 10);
+    }
+
+    const updated = await Student.findByIdAndUpdate(studentId, { $set: updates }, { new: true })
+      .select('-password')
+      .populate('departmentId', 'name');
+    if (!updated) return res.status(404).json({ message: 'Student not found' });
+    res.json(updated);
+  } catch (error) {
+    console.error('Update student error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
